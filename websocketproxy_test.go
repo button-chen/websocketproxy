@@ -28,7 +28,8 @@ func TestProxy(t *testing.T) {
 	}
 
 	u, _ := url.Parse(backendURL)
-	proxy := NewProxy(u)
+	proxy := NewProxy()
+	proxy.AddBackend(u)
 	proxy.Upgrader = upgrader
 
 	mux := http.NewServeMux()
