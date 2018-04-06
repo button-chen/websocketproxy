@@ -7,7 +7,7 @@ into your existing Go webserver to provide WebSocket reverse proxy.
 ## Install
 
 ```bash
-go get github.com/koding/websocketproxy
+go get github.com/button-chen/websocketproxy
 ```
 
 ## Example
@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/koding/websocketproxy"
+	"github.com/button-chen/websocketproxy"
 )
 
 var (
@@ -34,8 +34,9 @@ func main() {
 	if err != nil {
 		log.Fataln(err)
 	}
-
-	err := http.ListenAndServe(":80", websocketproxy.NewProxy(u))
+	proxy := websocketproxy.NewProxy()
+	proxy.AddBackend(u)
+	err := http.ListenAndServe(":80", proxy)
 	if err != nil {
 		log.Fataln(err)
 	}
