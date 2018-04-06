@@ -24,6 +24,12 @@ var (
 
 	// DefaultDialer is a dialer with all fields set to the default zero values.
 	DefaultDialer = websocket.DefaultDialer
+
+	// DefaultForwardMode default mode
+	DefaultForwardMode = 0
+
+	// RedirectForwardMode default mode
+	RedirectForwardMode = 1
 )
 
 // WebsocketProxy is an HTTP Handler that takes an incoming WebSocket
@@ -50,6 +56,9 @@ type WebsocketProxy struct {
 	ReqCount int
 
 	DesolateBackend map[int]int
+
+	//  ForwardMode if set 0 reverse mode, set 1 http redirect mode
+	ForwardMode int
 }
 
 // ProxyHandler returns a new http.Handler interface that reverse proxies the
@@ -61,7 +70,7 @@ func ProxyHandler() http.Handler { return NewProxy() }
 func NewProxy() *WebsocketProxy {
 	var backends = make([]func(r *http.Request) *url.URL, 0)
 	var desolateBackend = make(map[int]int)
-	return &WebsocketProxy{Backends: backends, DesolateBackend: desolateBackend}
+	return &WebsocketProxy{Backends: backends, DesolateBackend: desolateBackend, ForwardMode:DefaultForwardMode}
 }
 
 func (w *WebsocketProxy) getRequestURL(target *url.URL) func(r *http.Request) *url.URL {
@@ -114,7 +123,7 @@ func (w *WebsocketProxy) tryGetBackendConn(req *http.Request) (*websocket.Conn, 
 		if err != nil{
 			continue
 		}
-		log.Printf("client(%s) connected to server(%s)\r\n", req.RemoteAddr, connBackend.RemoteAddr())
+		log.Printf("client(%s) through reverse proxy connected to server(%s)\r\n", req.RemoteAddr, connBackend.RemoteAddr())
 		return connBackend, upgradeHeader, err
 	}
 	return nil, nil, errors.New("No backend available")
@@ -193,10 +202,17 @@ func (w *WebsocketProxy) connectBackend(req *http.Request) (*websocket.Conn, htt
 	return connBackend, upgradeHeader, nil
 }
 
+func (w *WebsocketProxy) redirectModeHandler(rw http.ResponseWriter, req *http.Request){
+	index := w.selectBackend()
+	backendURL := w.Backends[index](req)
 
-// ServeHTTP implements the http.Handler that proxies WebSocket connections.
-func (w *WebsocketProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	redirectURL := "ws://"+backendURL.Host
+	http.Redirect(rw, req, redirectURL, http.StatusMovedPermanently)
+	log.Printf("client(%s) redirect to backend (%s)", req.RemoteAddr, redirectURL)
+	return 
+}
 
+func (w *WebsocketProxy) reverseModeHandler(rw http.ResponseWriter, req *http.Request){
 	connBackend, upgradeHeader, err := w.tryGetBackendConn(req)
 	if err != nil{
 		log.Println(err)
@@ -244,4 +260,14 @@ func (w *WebsocketProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	go replicateWebsocketConn(connBackend, connPub, "backend", "client")
 
 	<-errc
+}
+
+
+// ServeHTTP implements the http.Handler that proxies WebSocket connections.
+func (w *WebsocketProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	if w.ForwardMode == DefaultForwardMode{
+		w.reverseModeHandler(rw, req)
+	}else if w.ForwardMode == RedirectForwardMode{
+		w.redirectModeHandler(rw, req)
+	}
 }
